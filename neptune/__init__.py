@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import os
-from md5 import md5
+from hashlib import md5
 import clang.cindex
 
 class CProjectException(Exception):
@@ -15,16 +15,16 @@ class CProjectException(Exception):
 
 class CProject:
 
-    def __init__(self, db_path, load=True)
+    def __init__(self, db_path, load=True):
         """Initialize a CProject. Constructs a DB
         
         """
-        self.db_path = db_path)
+        self.db_path = db_path
         self.tus = []
-        if os.path.exists(self.db_path):
+        if load and os.path.exists(self.db_path):
             self.load_tus()
-        elif load:
-            os.path.mkdir(self.db_path)
+        elif not os.path.exists(self.db_path):
+            os.mkdir(self.db_path)
         self.index = clang.cindex.Index.create()
 
     @property
@@ -33,7 +33,6 @@ class CProject:
 
     def create_tu_from_file(self, path=None, args=None, max_error_severity=4):
         self.max_error_severity = max_error_severity
-        self.path = path
         tu = self.index.parse(path, args)
         if self.errors:
             raise CProjectException(tu.diagnostics)
@@ -44,19 +43,20 @@ class CProject:
         self.tus.append(tu)
 
     def load_tus(self):
-        for f in os.listdir(self.path):
-            path = os.path.join(self.path, f)
+        for f in os.listdir(self.db_path):
+            path = os.path.join(self.db_path, f)
             self.create_tu_from_ast(path)
 
     def save_tus(self):
-        for tu in tus:
+        for tu in self.tus:
             filename = md5(tu.spelling).hexdigest()
-            tu.save(os.path.join(self.path, filename))
+            tu.save(os.path.join(self.db_path, filename))
         
     @property
     def errors(self):
-        return any(i for i in self.tu.diagnostics
+        return any(any(i for i in tu.diagnostics
                    if i.severity >= self.max_error_severity)
+                   for tu in self.tus)
 
     def get_xrefs_for(self, name):
         pass
@@ -67,6 +67,7 @@ class CProject:
 
     #can't use emcas column numbers, they are wrong
     def get_coderef_from(self, line, column, path=None):
+        #fix this 
         cfile = clang.cindex.File.from_name(self.tu, path or self.path)
         clocn = clang.cindex.SourceLocation.from_position(self.tu,
                                                           cfile,
@@ -144,13 +145,24 @@ class CodeReferece:
         self.get_xrefs_for(self.name)
 
 
-def init_db():
+def init_db(compiler):
     from sys import argv
-    path = os.path.expanduser(os.path.expandvars(sys.argv.pop()))
-    c = CProject(os.env.get('NEPTUNE_DB_PATH'))
+    from subprocess import Popen
+    path = os.path.expanduser(os.path.expandvars(argv.pop()))
+    c = CProject(os.getenv('NEPTUNE_DB_PATH') or '.neptune', load=False)
     c.create_tu_from_file(path, argv)
     c.save_tus()
+    argv.append(path)
+    #this is all kind of shitty
+    argv[0] = compiler
+    p = Popen(argv)
+    p.communicate()
 
+def neptune_cc():
+    init_db(os.getenv('NEPTUNE_ORIG_CC') or 'gcc')
+
+def neptune_cxx():
+    init_db(os.getenv('NEPTUNE_ORIG_CXX') or 'g++')
     
 # p = CProject(os.path.expanduser('~/src/stegdetect/src/stegdetect-0.6/stegdetect.c'), ' -DHAVE_CONFIG_H -I. -I. -I. -I./jpeg-6b -I./file -I./compat  -I/usr/include/gtk-1.2 -I/usr/include/glib-1.2 -I/usr/lib/glib/include -I/usr/lib/clang/3.5.0/include/ -O2 -Wall -g'.split())
 # c = p.get_coderef_from(1451, 36)
